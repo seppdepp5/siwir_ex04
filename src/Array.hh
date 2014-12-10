@@ -81,7 +81,14 @@ public:
    double scalProd(Array & d);
 
    // add to this
-   void add(Array & d);
+   // performs (elementwise) addition like this:
+   // 	this[i] = this[i] + scaleValue * d[i]
+   void addScaleOperand(Array & d, double scaleValue);
+
+   // add to this
+   // performs (elementwise) addition like this:
+   // 	this[i] = d[i] + scaleValue * this[i]
+   void addScaleTarget(Array & d, double scaleValue);
 
    // add to this, store in target
    void add(Array & d, Array & target);
@@ -98,7 +105,7 @@ private:
    int xSize_;
    int ySize_;
    int zSize_;
-   int size;
+   int size_;
 
    // Dimension of the array
    int dimension_;
@@ -123,7 +130,7 @@ inline double& Array::operator ()(int i)
 {
    //TODO
    //static double dummy;
-	CHECK_MSG(i >= 0 && i < size, "Index i out of bounds");
+	CHECK_MSG(i >= 0 && i < size_, "Index i out of bounds");
 	CHECK_MSG(dimension_ == DIM_1D, "Wrong dimension.");
    return ar[i];
 }
@@ -160,7 +167,7 @@ inline const double& Array::operator ()(int i) const
 {
    //TODO
    //static double dummy;
-	CHECK_MSG(i >= 0 && i < size, "Index i out of bounds");
+	CHECK_MSG(i >= 0 && i < size_, "Index i out of bounds");
 	CHECK_MSG(dimension_ == DIM_1D, "Wrong dimension.");
    return ar[i];
 }

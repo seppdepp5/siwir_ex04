@@ -2,18 +2,35 @@
 #include "CGSolver.hh"
 #include <iostream>
 #include "Timer.h"
+#include <mpi.h>
 
 #ifndef PI
 #define PI (3.1415)
 #endif
 
+#define ROOT_THREAD (0)
+
 int main(int argc, char** args)
 {
 
-	if (argc != 5)
+	MPI_Init(&argc, &args);
+
+	int size;
+	int rank;
+
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	if (argc != 5 && rank == ROOT_THREAD)
 	{
-		std::cout << "Usage: ./rgbs <grid_points_x> <grid_points_y> <iterations>" << std::endl;
-		return 0;
+		std::cout << "Usage: ./cg <grid_points_x> <grid_points_y> <iterations> <eps>" << std::endl;
+		MPI_Finalize();
+		return 1;
+	}
+	else if (argc != 5 && rank != ROOT_THREAD)
+	{
+		MPI_Finalize();
+		return 1;
 	}
 
 	int nx;
@@ -61,13 +78,20 @@ int main(int argc, char** args)
 	}
 
 
+
+
 	// suppress unused warning
 	(void) elapsedTime;
 
 	CGSolver c(nx, ny, k, maxIter, eps);
+
 	c.solve();
 
 	c.saveToFile("solution.gnuplot", c.getU());
+
+
+
+	MPI_Finalize();
 
 	return 0;
 }

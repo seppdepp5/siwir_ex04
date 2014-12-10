@@ -3,6 +3,13 @@
 #include <iostream>
 #include "Debug.hh"
 #include <cmath>
+#include <mpi.h>
+
+#ifndef ROOT_THREAD
+#define ROOT_THREAD (0)
+#endif
+
+#define SEND_TAG (1000)
 
 //===================================================================================================================
 //
@@ -19,8 +26,8 @@ Array::Array( int xSize )
 {
    // TODO construct 1D array here
 	CHECK_MSG(xSize > 0, "xSize must be positive");
-	size = xSize;
-	ar = new double[size];
+	size_ = xSize;
+	ar = new double[size_];
 }
 
 Array::Array( int xSize, int ySize )
@@ -31,8 +38,8 @@ Array::Array( int xSize, int ySize )
 {
    // TODO construct 2D array here
 	CHECK_MSG(xSize > 0 && ySize > 0, "xSize and ySize must be positive");
-	size = xSize * ySize;
-	ar = new double[size];
+	size_ = xSize * ySize;
+	ar = new double[size_];
 }
 
 Array::Array( int xSize, int ySize, int zSize )
@@ -43,8 +50,8 @@ Array::Array( int xSize, int ySize, int zSize )
 {
    // TODO construct 3D array here
 	CHECK_MSG(xSize > 0 && ySize > 0 && zSize > 0, "xSize, ySize and zSize must be positive");
-	size = xSize * ySize * zSize;
-	ar = new double[size];
+	size_ = xSize * ySize * zSize;
+	ar = new double[size_];
 }
 
 Array::Array(const Array & s)
@@ -68,11 +75,11 @@ Array::Array(const Array & s)
 		zSize_ = s.getSize(DIM_3D);
 		break;
 	}
-	size = s.getSize();
-	ar = new double[size];
+	size_ = s.getSize();
+	ar = new double[size_];
 
 	double *p_s = s.getArray();
-	for (int i = 0; i < size; i++)
+	for (int i = 0; i < size_; i++)
 	{
 		ar[i] = p_s[i];
 	}
@@ -217,14 +224,14 @@ int Array::getSize( int dimension ) const
 int Array::getSize() const
 {
    //TODO
-   return size;
+   return size_;
 }
 
 double Array::getAbsMax()
 {
 	double max = fabs(ar[0]);
 
-	for (int i = 1; i < size; i++)
+	for (int i = 1; i < size_; i++)
 	{
 		if (fabs(ar[i]) > max)
 		{
@@ -239,7 +246,7 @@ void Array::copyFrom(Array & d)
 {
 	double * d_ar = d.getArray();
 
-	for (int i = 0; i < size; i++)
+	for (int i = 0; i < size_; i++)
 	{
 		ar[i] = d_ar[i];
 	}
@@ -250,13 +257,70 @@ double Array::scalProdSelf()
 {
 	double ret = 0.0;
 
-	// TODO MPI here
-	for (int i = 0; i < this->size; i++)
+	int size;
+	int rank;
+
+	int num_elements_to_compute;
+
+	MPI_Status status;
+
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	// only for master thread
+	if (rank == ROOT_THREAD)
+	{
+
+		// size_ is the size of the array
+		// whereas size is the number of threads
+		//
+		// each thread but the master will now get num_elements_to_send
+		// elements of the array to do the calculation
+		//
+		// the master thread will additionally also compute the rest elements
+		// (it is not guaranteed that size_ % size == 0)
+		int num_elements_to_send = size_ / size;
+		int rest = size_ % size;
+
+		// excluding the master thread here
+		for (int i = 1; i < size; i++)
+		{
+			// sending number of array elements to process
+			MPI_Send(&num_elements_to_send, 1, MPI_INT, i, SEND_TAG, MPI_COMM_WORLD);
+			// sending array address of the first element to be processed by the receiver
+			MPI_Send(&ar[num_elements_to_send*i + rest], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD);
+		}
+
+		// master computes one part plus the rest
+		num_elements_to_compute = num_elements_to_send + rest;
+
+	}
+	// only for "slaves"
+	else
+	{
+		// receive number of elements to compute / receiving array length
+		MPI_Recv(&num_elements_to_compute, 1, MPI_INT, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+		// receive array and store at pos 0 of local copy
+		// THIS DESTROYS THE ARRAY AND MAKES IT NOT USABLE FOR THIS THREAD AGAIN
+		MPI_Recv(&ar[0], num_elements_to_compute, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+
+	}
+
+	// compute here
+	for (int i = 0; i < num_elements_to_compute; i++)
 	{
 		ret += ar[i] * ar[i];
 	}
 
-	return ret;
+	// use reduce function to add all ret values to one big suḿ in ROOT_THREAD
+	double global_sum = 0.0;
+	MPI_Reduce(&ret, &global_sum, 1, MPI_DOUBLE, MPI_SUM, ROOT_THREAD, MPI_COMM_WORLD);
+
+	// broadcast global sum, so every thread returns the right value
+	MPI_Bcast(&global_sum, 1, MPI_DOUBLE, ROOT_THREAD, MPI_COMM_WORLD);
+	return global_sum;
+
+
 }
 
 double Array::scalProd(Array & d)
@@ -272,25 +336,236 @@ double Array::scalProd(Array & d)
 
 	double ret = 0.0;
 
-	// TODO MPI here
-	for (int i = 0; i < this->size; i++)
+	int size;
+	int rank;
+
+	int num_elements_to_compute;
+
+	MPI_Status status;
+
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	// only for master thread
+	if (rank == ROOT_THREAD)
+	{
+
+		// size_ is the size of the array
+		// whereas size is the number of threads
+		//
+		// each thread but the master will now get num_elements_to_send
+		// elements of the array to do the calculation
+		//
+		// the master thread will additionally also compute the rest elements
+		// (it is not guaranteed that size_ % size == 0)
+		int num_elements_to_send = size_ / size;
+		int rest = size_ % size;
+
+		// excluding the master thread here
+		for (int i = 1; i < size; i++)
+		{
+			// sending number of array elements to process
+			MPI_Send(&num_elements_to_send, 1, MPI_INT, i, SEND_TAG, MPI_COMM_WORLD);
+			// sending array address of the first element to be processed by the receiver for both arrays
+			MPI_Send(&ar[num_elements_to_send*i + rest], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD);
+			MPI_Send(&d_ar[num_elements_to_send*i + rest], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD);
+		}
+
+		// master computes one part plus the rest
+		num_elements_to_compute = num_elements_to_send + rest;
+
+	}
+	// only for "slaves"
+	else
+	{
+		// receive number of elements to compute / receiving array length
+		MPI_Recv(&num_elements_to_compute, 1, MPI_INT, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+		// receive arrays and store at pos 0 of local copies
+		// THIS DESTROYS THE ARRAYs AND MAKES IT NOT USABLE FOR THIS THREAD AGAIN
+		MPI_Recv(&ar[0], num_elements_to_compute, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+		MPI_Recv(&d_ar[0], num_elements_to_compute, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+
+	}
+
+	// compute here
+	for (int i = 0; i < num_elements_to_compute; i++)
 	{
 		ret += ar[i] * d_ar[i];
 	}
 
-	return ret;
+	// use reduce function to add all ret values to one big suḿ in ROOT_THREAD
+	double global_sum = 0.0;
+	MPI_Reduce(&ret, &global_sum, 1, MPI_DOUBLE, MPI_SUM, ROOT_THREAD, MPI_COMM_WORLD);
+
+	// broadcast global sum, so every thread returns the right value
+	MPI_Bcast(&global_sum, 1, MPI_DOUBLE, ROOT_THREAD, MPI_COMM_WORLD);
+
+	return global_sum;
+
 }
 
-void Array::add(Array & d)
+void Array::addScaleOperand(Array & d, double scaleValue)
 {
 
 	double * d_ar = d.getArray();
 
-	// TODO: MPI here
-	for (int i = 0; i < size; i++)
+	int size;
+	int rank;
+
+	int num_elements_to_compute;
+
+	MPI_Status status;
+
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	// size_ is the size of the array
+	// whereas size is the number of threads
+	//
+	// each thread but the master will now get num_elements_to_send
+	// elements of the array to do the calculation
+	//
+	// the master thread will additionally also compute the rest elements
+	// (it is not guaranteed that size_ % size == 0)
+	int num_elements_to_send = size_ / size;
+	int rest = size_ % size;
+
+	// only for master thread
+	if (rank == ROOT_THREAD)
 	{
-		ar[i] = ar[i] + d_ar[i];
+
+
+
+		// excluding the master thread here
+		for (int i = 1; i < size; i++)
+		{
+			// sending number of array elements to process
+			MPI_Send(&num_elements_to_send, 1, MPI_INT, i, SEND_TAG, MPI_COMM_WORLD);
+			// sending array address of the first element to be processed by the receiver for both arrays
+			MPI_Send(&ar[num_elements_to_send*i + rest], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD);
+			MPI_Send(&d_ar[num_elements_to_send*i + rest], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD);
+		}
+
+		// master computes one part plus the rest
+		num_elements_to_compute = num_elements_to_send + rest;
+
 	}
+	// only for "slaves"
+	else
+	{
+		// receive number of elements to compute / receiving array length
+		MPI_Recv(&num_elements_to_compute, 1, MPI_INT, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+		// receive arrays and store at pos 0 of local copies
+		// THIS DESTROYS THE ARRAYs AND MAKES IT NOT USABLE FOR THIS THREAD AGAIN
+		MPI_Recv(&ar[0], num_elements_to_compute, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+		MPI_Recv(&d_ar[0], num_elements_to_compute, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+
+	}
+
+	// computation here
+	for (int i = 0; i < num_elements_to_compute; i++)
+	{
+		ar[i] = ar[i] + scaleValue * d_ar[i];
+	}
+
+		// send it all back to root thread
+	if (rank == ROOT_THREAD)
+	{
+		for (int i = 1; i < size; i++)
+		{
+			MPI_Recv(&ar[num_elements_to_send*i + rest], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD, &status);
+		}
+	}
+	// only for slaves
+	else
+	{
+		MPI_Send(&ar[0], num_elements_to_compute, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD);
+	}
+
+	// broadcast to have the right array in every thread
+	MPI_Bcast(&ar[0], size_, MPI_DOUBLE, ROOT_THREAD, MPI_COMM_WORLD);
+}
+
+void Array::addScaleTarget(Array & d, double scaleValue)
+{
+
+	double * d_ar = d.getArray();
+
+	int size;
+	int rank;
+
+	int num_elements_to_compute;
+
+	MPI_Status status;
+
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	// size_ is the size of the array
+	// whereas size is the number of threads
+	//
+	// each thread but the master will now get num_elements_to_send
+	// elements of the array to do the calculation
+	//
+	// the master thread will additionally also compute the rest elements
+	// (it is not guaranteed that size_ % size == 0)
+	int num_elements_to_send = size_ / size;
+	int rest = size_ % size;
+
+	// only for master thread
+	if (rank == ROOT_THREAD)
+	{
+
+
+
+		// excluding the master thread here
+		for (int i = 1; i < size; i++)
+		{
+			// sending number of array elements to process
+			MPI_Send(&num_elements_to_send, 1, MPI_INT, i, SEND_TAG, MPI_COMM_WORLD);
+			// sending array address of the first element to be processed by the receiver for both arrays
+			MPI_Send(&ar[num_elements_to_send*i + rest], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD);
+			MPI_Send(&d_ar[num_elements_to_send*i + rest], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD);
+		}
+
+		// master computes one part plus the rest
+		num_elements_to_compute = num_elements_to_send + rest;
+
+	}
+	// only for "slaves"
+	else
+	{
+		// receive number of elements to compute / receiving array length
+		MPI_Recv(&num_elements_to_compute, 1, MPI_INT, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+		// receive arrays and store at pos 0 of local copies
+		// THIS DESTROYS THE ARRAYs AND MAKES IT NOT USABLE FOR THIS THREAD AGAIN
+		MPI_Recv(&ar[0], num_elements_to_compute, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+		MPI_Recv(&d_ar[0], num_elements_to_compute, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD, &status);
+
+	}
+
+	// computation here
+	for (int i = 0; i < num_elements_to_compute; i++)
+	{
+		ar[i] = d_ar[i] + scaleValue * ar[i] ;
+	}
+
+		// send it all back to root thread
+	if (rank == ROOT_THREAD)
+	{
+		for (int i = 1; i < size; i++)
+		{
+			MPI_Recv(&ar[num_elements_to_send*i + rest], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD, &status);
+		}
+	}
+	// only for slaves
+	else
+	{
+		MPI_Send(&ar[0], num_elements_to_compute, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD);
+	}
+
+	// broadcast to have the right array in every thread
+	MPI_Bcast(&ar[0], size_, MPI_DOUBLE, ROOT_THREAD, MPI_COMM_WORLD);
 }
 
 void Array::add(Array & d, Array & target)
@@ -300,7 +575,7 @@ void Array::add(Array & d, Array & target)
 	double * t_ar = target.getArray();
 
 	// TODO: MPI here
-	for (int i = 0; i < size; i++)
+	for (int i = 0; i < size_; i++)
 	{
 		t_ar[i] = ar[i] + d_ar[i];
 	}
@@ -312,7 +587,7 @@ void Array::sub(Array & d)
 	double * d_ar = d.getArray();
 
 	// TODO: MPI here
-	for (int i = 0; i < size; i++)
+	for (int i = 0; i < size_; i++)
 	{
 		ar[i] = ar[i] - d_ar[i];
 	}
@@ -325,7 +600,7 @@ void Array::sub(Array & d, Array & target)
 	double * t_ar = target.getArray();
 
 	// TODO: MPI here
-	for (int i = 0; i < size; i++)
+	for (int i = 0; i < size_; i++)
 	{
 		t_ar[i] = ar[i] - d_ar[i];
 	}
@@ -339,14 +614,14 @@ void Array::normalize()
 	double avg;
 	double sum = 0.0;
 
-	for (int i = 0; i < size; i++)
+	for (int i = 0; i < size_; i++)
 	{
 		sum += ar[i];
 	}
 
-	avg = sum / size;
+	avg = sum / size_;
 
-	for (int i = 0; i < size; i++)
+	for (int i = 0; i < size_; i++)
 	{
 		ar[i] -= avg;
 	}

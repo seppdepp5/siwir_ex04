@@ -2,12 +2,14 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <mpi.h>
 
 #ifndef PI
 #define PI (3.1415)
 #endif
 
 #define VERBOSE (1)
+#define ROOT_THREAD (0)
 
 CGSolver::CGSolver
 	(const int nx
@@ -53,6 +55,13 @@ CGSolver::CGSolver
 
 void CGSolver::solve()
 {
+
+	int size;
+	int rank;
+
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
 	double delta0;
 	double delta1;
 	double alpha;
@@ -86,42 +95,27 @@ void CGSolver::solve()
 		alpha = delta0 / d.scalProd(z);
 
 		// 8: u := u + alpha * d
-		// this is done right here because we do not want ANOTHER array object to store alpha * d (yet)
-		// TODO: MPI here
-		double * u_ar = u_.getArray();
-		double * d_ar = d.getArray();
-		for (int i = 0; i < u_.getSize(); i++)
-		{
-			u_ar[i] = u_ar[i] + alpha * d_ar[i];
-		}
+		u_.addScaleOperand(d, alpha);
 
 		// 9: r := r - alpha * z
-		// this is done right here because we do not want ANOTHER array object to store alpha * z (yet)
-		// TODO: MPI here
-		double * r_ar = r_.getArray();
-		double * z_ar = z.getArray();
-		for (int i = 0; i < r_.getSize(); i++)
-		{
-			r_ar[i] = r_ar[i] - alpha * z_ar[i];
-		}
+		r_.addScaleOperand(z, -alpha);
 
 		// 10: delta1 = (r,r)
 		delta1 = r_.scalProdSelf();
 
 		// 11: if ||r||_2 <= eps then stop
-		if (VERBOSE && it%1000 == 0) std::cout << "Step: " << it << "\tResidual: " << sqrt(delta1/((nx_-1)*(ny_-1))) << std::endl;
+		if (VERBOSE && it%1000 == 0 && rank == ROOT_THREAD)
+		{
+			std::cout << "Step: " << it << "\tResidual: " << sqrt(delta1/((nx_-1)*(ny_-1))) << std::endl;
+		}
 		if (sqrt(delta1/((nx_-1)*(ny_-1))) <= eps_) return;
 
 		// 12: beta = delta1 / delta0
 		beta = delta1 / delta0;
 
 		// 13: d = r + beta * d
-		// this is done right here because we do not want ANOTHER array object to store alpha * z (yet)
-		// TODO: MPI here
-		for (int i = 0; i < r_.getSize(); i++)
-		{
-			d_ar[i] = r_ar[i] - beta * d_ar[i];
-		}
+		d.addScaleTarget(r_, -beta);
+
 
 		// 14: delta0 = delta1
 		delta0 = delta1;
