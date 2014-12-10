@@ -23,15 +23,20 @@ public:
 
 	Array & getU() {return u_;}
 	Array & getF() {return f_;}
+	Array & getR() {return r_;}
+
+
 
 private:
-
-	// computes f - A*u and stores the result in r_
-	void computeResidual();
 
 	// does target = A*u where A is the system matrix of our problem
 	// assuming u does NOT contain a boundary layer (thus this is plain matrix-vector multiplication)
 	void applyOperator(Array & u, Array & target);
+
+	// computes f - A*u and stores the result in r_
+	void computeResidual();
+
+
 
 	Array u_;
 	Array f_;

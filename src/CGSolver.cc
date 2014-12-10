@@ -8,8 +8,9 @@
 #define PI (3.1415)
 #endif
 
-#define VERBOSE (1)
+#define VERBOSE (0)
 #define ROOT_THREAD (0)
+#define SEND_TAG (1000)
 
 CGSolver::CGSolver
 	(const int nx
@@ -56,6 +57,8 @@ CGSolver::CGSolver
 void CGSolver::solve()
 {
 
+
+
 	int size;
 	int rank;
 
@@ -66,6 +69,8 @@ void CGSolver::solve()
 	double delta1;
 	double alpha;
 	double beta;
+
+	double residual = 0.0;
 
 	Array z(u_);
 	Array d(u_);
@@ -88,6 +93,8 @@ void CGSolver::solve()
 	// 5: for number of iterations do
 	for (int it = 0; it < maxIter_; it++)
 	{
+
+
 		// 6: z= Ad
 		applyOperator(d, z);
 
@@ -97,6 +104,7 @@ void CGSolver::solve()
 		// 8: u := u + alpha * d
 		u_.addScaleOperand(d, alpha);
 
+
 		// 9: r := r - alpha * z
 		r_.addScaleOperand(z, -alpha);
 
@@ -104,11 +112,16 @@ void CGSolver::solve()
 		delta1 = r_.scalProdSelf();
 
 		// 11: if ||r||_2 <= eps then stop
+		residual = sqrt(delta1/((nx_-1)*(ny_-1)));
 		if (VERBOSE && it%1000 == 0 && rank == ROOT_THREAD)
 		{
-			std::cout << "Step: " << it << "\tResidual: " << sqrt(delta1/((nx_-1)*(ny_-1))) << std::endl;
+			std::cout << "Step: " << it << "\tResidual: " << residual << std::endl;
 		}
-		if (sqrt(delta1/((nx_-1)*(ny_-1))) <= eps_) return;
+		if (residual <= eps_)
+		{
+			if (rank == ROOT_THREAD) std::cout << "Residual dropped below eps after " << it << " iterations.\nResidual = " << residual << std::endl;
+			return;
+		}
 
 		// 12: beta = delta1 / delta0
 		beta = delta1 / delta0;
@@ -121,6 +134,7 @@ void CGSolver::solve()
 		delta0 = delta1;
 	}
 
+	if (rank == ROOT_THREAD) std::cout << "Solver ran through all " << maxIter_ << " iterations. Residual = " << residual << std::endl;
 
 }
 
@@ -147,15 +161,62 @@ int CGSolver::saveToFile(std::string filename, Array & u) const
 
 void CGSolver::applyOperator(Array & u, Array & target)
 {
+	int size;
+	int rank;
+	MPI_Status status;
+
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
 	double hx = 1.0 / (dx_*dx_);
 	double hy = 1.0 / (dy_*dy_);
 	double hxy = 2.0 * hx + 2.0 * hy + k_ * k_;
 
-	// TODO: MPI here
+	int num_cols = u_.getSize(DIM_1D);
+	int num_rows = u_.getSize(DIM_2D);
+	int num_rows_to_compute;
+
+	// first row this thread has to compute
+	int first_row;
+	// last row this thread has to compute (exclusive)
+	int last_row;
+
+	// each thread but the master will now get num_rows_to_send
+	// rows of the array to do the calculation
+	//
+	// the master thread will additionally also compute the rest rows
+	// (it is not guaranteed that the number of rows % size == 0)
+	/*
+	 * Example: 3 processes, 4 rows
+	 *
+	 * =========== -> rank == 2
+	 * =========== -> rank == 1
+	 * =========== -> master
+	 * =========== -> master
+	 */
+	int num_rows_to_send = num_rows / size;
+	int rest_rows = num_rows % size;
+
+	int num_elements_to_send = num_rows_to_send * num_cols;
+	int rest_elements = rest_rows * num_cols;
+
+	if (rank == ROOT_THREAD)
+	{
+		num_rows_to_compute = num_rows_to_send + rest_rows;
+		first_row = 0;
+		last_row = first_row + num_rows_to_compute;
+	}
+	else
+	{
+		num_rows_to_compute = num_rows_to_send;
+		first_row = rank * num_rows_to_compute + rest_rows;
+		last_row = first_row + num_rows_to_compute;
+	}
+
 	// dont know to handle boundaries the fastest way
 	// also dont know if that matters at all
 	// so here is the easy solution
-	for (int j = 0; j < u.getSize(DIM_2D); j++)
+	for (int j = first_row; j < last_row; j++)
 	{
 		for (int i = 0; i < u.getSize(DIM_1D); i++)
 		{
@@ -214,6 +275,34 @@ void CGSolver::applyOperator(Array & u, Array & target)
 			}
 		}
 	}
+
+	///////////////////////////////////////////
+	// MERGE target and broadcast afterwards //
+	///////////////////////////////////////////
+
+	// get the double array from our u Array-object
+	double * ar = target.getArray();
+
+	// send it all back to root thread
+	if (rank == ROOT_THREAD)
+	{
+
+
+		// receive from all slaves
+		for (int i = 1; i < size; i++)
+		{
+			MPI_Recv(&ar[num_elements_to_send*i + rest_elements], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD, &status);
+		}
+	}
+	// only for slaves
+	else
+	{
+		MPI_Send(&ar[num_elements_to_send*rank + rest_elements], num_elements_to_send, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD);
+	}
+
+	// broadcast to have the right array in every thread
+	MPI_Bcast(&ar[0], target.getSize(), MPI_DOUBLE, ROOT_THREAD, MPI_COMM_WORLD);
+
 }
 
 void CGSolver::computeResidual()
@@ -222,7 +311,8 @@ void CGSolver::computeResidual()
 	applyOperator(u_, r_);
 
 	// there are nicer solutions to this... cannot be called with __restrict__ yet
-	f_.sub(r_, r_);
+	r_.addScaleTarget(f_, -1.0);
+
 
 }
 

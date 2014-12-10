@@ -77,17 +77,34 @@ int main(int argc, char** args)
 		return 1;
 	}
 
+	if (maxIter < 1)
+	{
+		if (rank == ROOT_THREAD)
+		{
+			std::cout << "Please set the number of iterations to a value higher than 0.\nExiting." << std::endl;
+			MPI_Finalize();
+			return 0;
+		}
+		else
+		{
+			MPI_Finalize();
+			return 0;
+		}
+	}
 
 
-
-	// suppress unused warning
-	(void) elapsedTime;
 
 	CGSolver c(nx, ny, k, maxIter, eps);
-
+	t.reset();
 	c.solve();
+	elapsedTime = t.elapsed();
+	if (rank == ROOT_THREAD)
+	{
+		std::cout << "Elapsed time: " << elapsedTime << " seconds" << std::endl;
 
-	c.saveToFile("solution.gnuplot", c.getU());
+		std::cout << "Saving solution to solution.gnuplot ..." << std::endl;
+		c.saveToFile("solution.gnuplot", c.getU());
+	}
 
 
 
