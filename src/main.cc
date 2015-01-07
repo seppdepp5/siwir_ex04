@@ -5,7 +5,7 @@
 #include <mpi.h>
 
 #ifndef PI
-#define PI (3.1415)
+#define PI (3.14159265358979323846264338327)
 #endif
 
 #define ROOT_THREAD (0)

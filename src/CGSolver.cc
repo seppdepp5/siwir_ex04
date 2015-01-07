@@ -5,7 +5,7 @@
 #include <mpi.h>
 
 #ifndef PI
-#define PI (3.1415)
+#define PI (3.14159265358979323846264338327)
 #endif
 
 #define VERBOSE (0)
@@ -44,13 +44,14 @@ CGSolver::CGSolver
 		}
 	}
 
-	// subtract upper border from f
-	double hy = 1.0 / (dy_*dy_);
+	// substract upper border from f
+	double hy =  - 1.0 / (dy_*dy_);
 
 	for (int i = 0; i < f_.getSize(DIM_1D); i++)
 	{
 		f_(i, f_.getSize(DIM_2D)-1) -=  hy * sin(2.0 * PI * (i+1)*dx_) * sinh(2.0 * PI);
 	}
+
 
 }
 
@@ -65,7 +66,7 @@ void CGSolver::solve()
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	double delta0;
+	double delta0 = 0.0;
 	double delta1;
 	double alpha;
 	double beta;
@@ -93,7 +94,6 @@ void CGSolver::solve()
 	// 5: for number of iterations do
 	for (int it = 0; it < maxIter_; it++)
 	{
-
 
 		// 6: z= Ad
 		applyOperator(d, z);
@@ -127,7 +127,7 @@ void CGSolver::solve()
 		beta = delta1 / delta0;
 
 		// 13: d = r + beta * d
-		d.addScaleTarget(r_, -beta);
+		d.addScaleTarget(r_, beta);
 
 
 		// 14: delta0 = delta1
@@ -140,16 +140,47 @@ void CGSolver::solve()
 
 int CGSolver::saveToFile(std::string filename, Array & u) const
 {
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// ATTENTION: PLOT INCLUDES HACK TO ADD BOUNDARY VALUES (which normally do not belong to the vector u_) //
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 	std::ofstream gnuFile(filename);
 	if (gnuFile.is_open())
 	{
+		// BOUNDARY HACK ///////////////////////////////////////////////////////////////
+		// bottom row full of zeros
+		gnuFile << 0 << " " << 0 << " " << "0" << "\n\n";
+		for (int i = 0; i < u.getSize(DIM_1D); i++)
+		{
+			gnuFile << i+1 << " " << 0 << " " << u(i,0) << "\n\n";
+		}
+		gnuFile << u.getSize(DIM_1D) + 1 << " " << 0 << " " << "0" << "\n\n";
+		////////////////////////////////////////////////////////////////////////////////
+
+		// NORMAL PLOT
+		// middle rows
 		for (int j = 0; j < u.getSize(DIM_2D); j++)
 		{
+			gnuFile << 0 << " " << j+1 << " " << "0" << "\n\n";
 			for (int i = 0; i < u.getSize(DIM_1D); i++)
 			{
-				gnuFile << i << " " << j << " " << u(i,j) << "\n\n";
+				gnuFile << i+1 << " " << j+1 << " " << u(i,j) << "\n\n";
 			}
+			gnuFile << u.getSize(DIM_1D) + 1 << " " << j+1 << " " << "0" << "\n\n";
 		}
+
+		// BOUNDARY HACK ///////////////////////////////////////////////////////////////
+		// top row
+		gnuFile << 0 << " " << u.getSize(DIM_2D) + 1 << " " << "0" << "\n\n";
+		for (int i = 0; i < u_.getSize(DIM_1D); i++)
+		{
+			gnuFile << i+1 << " " << u.getSize(DIM_2D) + 1 << " " <<   sin(2.0 * PI * (i+1)*dx_) * sinh(2.0 * PI) << "\n\n";
+		}
+		gnuFile << u.getSize(DIM_1D) + 1 << " " << u.getSize(DIM_2D) + 1 << " " << "0" << "\n\n";
+		////////////////////////////////////////////////////////////////////////////////
+
+
+
 		gnuFile.close();
 		return 0;
 	}
@@ -168,9 +199,9 @@ void CGSolver::applyOperator(Array & u, Array & target)
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	double hx = 1.0 / (dx_*dx_);
-	double hy = 1.0 / (dy_*dy_);
-	double hxy = 2.0 * hx + 2.0 * hy + k_ * k_;
+	double hx = -1.0 / (dx_*dx_);
+	double hy = -1.0 / (dy_*dy_);
+	double hxy = 2.0 * hx + 2.0 * hy - k_ * k_;
 
 	int num_cols = u_.getSize(DIM_1D);
 	int num_rows = u_.getSize(DIM_2D);
@@ -269,7 +300,7 @@ void CGSolver::applyOperator(Array & u, Array & target)
 			}
 
 			// bottom border
-			else if (j == u.getSize(DIM_2D)-1 && i != 0 && i != u.getSize(DIM_1D)-1)
+			else if (j == 0 && i != 0 && i != u.getSize(DIM_1D)-1)
 			{
 				target(i, j) = hx * (u(i-1,j)+u(i+1,j)) + hy * u(i,j+1) - hxy * u(i,j);
 			}
