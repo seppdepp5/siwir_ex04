@@ -17,7 +17,7 @@ public:
 		);
 
 	// yay
-	void solve();
+	void solve(double dt, double alphaCrank, double k);
 
 	int saveToFile(std::string filename, Array & u) const;
 
@@ -25,6 +25,8 @@ public:
 	Array & getF() {return f_;}
 	Array & getR() {return r_;}
 
+	double getDX() {return dx_;}
+	double getDY() {return dy_;}
 
 
 private:
@@ -33,8 +35,10 @@ private:
 	// assuming u does NOT contain a boundary layer (thus this is plain matrix-vector multiplication)
 	void applyOperator(Array & u, Array & target);
 
+	void applyOperatorHeat(Array & u, Array & target, double dt, double alpha, double k);
+
 	// computes f - A*u and stores the result in r_
-	void computeResidual();
+	void computeResidual(double dt, double alphaCrank, double k);
 
 
 

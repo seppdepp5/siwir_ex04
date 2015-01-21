@@ -1,7 +1,7 @@
 TAG = MPI
 
 #CONFIGURE BUILD SYSTEM
-TARGET	   = cg
+TARGET	   = heat
 BUILD_DIR  = ./$(TAG)
 SRC_DIR    = ./src
 MAKE_DIR   = ./

@@ -1,5 +1,6 @@
 #include "Array.hh"
 #include "CGSolver.hh"
+#include "HeatSolver.hh"
 #include <iostream>
 #include "Timer.h"
 #include <mpi.h>
@@ -92,11 +93,15 @@ int main(int argc, char** args)
 		}
 	}
 
-
+	double alpha = .5;
+	double kk = 0.8;
+	double dt = 0.001;
+	int timesteps = 200;
 
 	CGSolver c(nx, ny, k, maxIter, eps);
+	HeatSolver h(c);
 	t.reset();
-	c.solve();
+	h.solve(alpha, kk, dt, timesteps);
 	elapsedTime = t.elapsed();
 	if (rank == ROOT_THREAD)
 	{

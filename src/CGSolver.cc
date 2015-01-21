@@ -24,7 +24,7 @@ CGSolver::CGSolver
 	, r_(nx-1, ny-1)
 	, nx_(nx)
 	, ny_(ny)
-	, dx_(2.0 / (double)nx)
+	, dx_(1.0 / (double)nx)
 	, dy_(1.0 / (double)ny)
 	, k_(k)
 	, maxIter_(maxIter)
@@ -35,7 +35,7 @@ CGSolver::CGSolver
 	u_.fill(0.0);
 	f_.fill(0.0);
 	r_.fill(0.0);
-
+#if 0
 	for (int j = 0; j < f_.getSize(DIM_2D); j++)
 	{
 		for (int i = 0; i < f_.getSize(DIM_1D); i++)
@@ -51,11 +51,11 @@ CGSolver::CGSolver
 	{
 		f_(i, f_.getSize(DIM_2D)-1) -=  hy * sin(2.0 * PI * (i+1)*dx_) * sinh(2.0 * PI);
 	}
-
+#endif
 
 }
 
-void CGSolver::solve()
+void CGSolver::solve(double dt, double alphaCrank, double k)
 {
 
 
@@ -80,7 +80,7 @@ void CGSolver::solve()
 	d.fill(0.0);
 
 	// 1: r = f - Au
-	computeResidual();
+	computeResidual(dt, alphaCrank, k);
 
 	// 2: delta0 = (r,r)
 	delta0 = r_.scalProdSelf();
@@ -96,7 +96,7 @@ void CGSolver::solve()
 	{
 
 		// 6: z= Ad
-		applyOperator(d, z);
+		applyOperatorHeat(d, z, dt, alphaCrank, k);
 
 		// 7: alpha = delta0 / (d,z)
 		alpha = delta0 / d.scalProd(z);
@@ -147,6 +147,7 @@ int CGSolver::saveToFile(std::string filename, Array & u) const
 	std::ofstream gnuFile(filename);
 	if (gnuFile.is_open())
 	{
+#if 0
 		// BOUNDARY HACK ///////////////////////////////////////////////////////////////
 		// bottom row full of zeros
 		gnuFile << 0 << " " << 0 << " " << "0" << "\n\n";
@@ -156,7 +157,7 @@ int CGSolver::saveToFile(std::string filename, Array & u) const
 		}
 		gnuFile << u.getSize(DIM_1D) + 1 << " " << 0 << " " << "0" << "\n\n";
 		////////////////////////////////////////////////////////////////////////////////
-
+#endif
 		// NORMAL PLOT
 		// middle rows
 		for (int j = 0; j < u.getSize(DIM_2D); j++)
@@ -168,7 +169,7 @@ int CGSolver::saveToFile(std::string filename, Array & u) const
 			}
 			gnuFile << u.getSize(DIM_1D) + 1 << " " << j+1 << " " << "0" << "\n\n";
 		}
-
+#if 0
 		// BOUNDARY HACK ///////////////////////////////////////////////////////////////
 		// top row
 		gnuFile << 0 << " " << u.getSize(DIM_2D) + 1 << " " << "0" << "\n\n";
@@ -178,7 +179,7 @@ int CGSolver::saveToFile(std::string filename, Array & u) const
 		}
 		gnuFile << u.getSize(DIM_1D) + 1 << " " << u.getSize(DIM_2D) + 1 << " " << "0" << "\n\n";
 		////////////////////////////////////////////////////////////////////////////////
-
+#endif
 
 
 		gnuFile.close();
@@ -188,6 +189,153 @@ int CGSolver::saveToFile(std::string filename, Array & u) const
 	{
 		return 1;
 	}
+}
+
+void CGSolver::applyOperatorHeat(Array & u, Array & target, double dt, double alpha, double k)
+{
+	int size;
+	int rank;
+	MPI_Status status;
+
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	double hx = - (alpha * k) / (dx_*dx_);
+	double hy = - (alpha * k) / (dy_*dy_);
+	double hxy = - (1.0/dt - 2.0*hx - 2.0*hy);
+
+
+	int num_cols = u_.getSize(DIM_1D);
+	int num_rows = u_.getSize(DIM_2D);
+	int num_rows_to_compute;
+
+	// first row this thread has to compute
+	int first_row;
+	// last row this thread has to compute (exclusive)
+	int last_row;
+
+	// each thread but the master will now get num_rows_to_send
+	// rows of the array to do the calculation
+	//
+	// the master thread will additionally also compute the rest rows
+	// (it is not guaranteed that the number of rows % size == 0)
+	/*
+	 * Example: 3 processes, 4 rows
+	 *
+	 * =========== -> rank == 2
+	 * =========== -> rank == 1
+	 * =========== -> master
+	 * =========== -> master
+	 */
+	int num_rows_to_send = num_rows / size;
+	int rest_rows = num_rows % size;
+
+	int num_elements_to_send = num_rows_to_send * num_cols;
+	int rest_elements = rest_rows * num_cols;
+
+	if (rank == ROOT_THREAD)
+	{
+		num_rows_to_compute = num_rows_to_send + rest_rows;
+		first_row = 0;
+		last_row = first_row + num_rows_to_compute;
+	}
+	else
+	{
+		num_rows_to_compute = num_rows_to_send;
+		first_row = rank * num_rows_to_compute + rest_rows;
+		last_row = first_row + num_rows_to_compute;
+	}
+
+	// dont know to handle boundaries the fastest way
+	// also dont know if that matters at all
+	// so here is the easy solution
+	for (int j = first_row; j < last_row; j++)
+	{
+		for (int i = 0; i < u.getSize(DIM_1D); i++)
+		{
+			// inner domain
+			if (i > 0 && j > 0 && i < u.getSize(DIM_1D)-1 && j < u.getSize(DIM_2D)-1)
+			{
+				target(i, j) = hx * (u(i-1,j)+u(i+1,j)) + hy * (u(i,j+1)+u(i,j-1)) - hxy * u(i,j);
+			}
+
+			// bottom left corner
+			else if (i == 0 && j == 0)
+			{
+				target(i, j) = hx * u(i+1,j) + hy * u(i,j+1) - hxy * u(i,j);
+			}
+
+			// top left corner
+			else if (i == 0 && j == u.getSize(DIM_2D)-1)
+			{
+				target(i, j) = hx * u(i+1,j) + hy * u(i,j-1) - hxy * u(i,j);
+			}
+
+			// top right corner
+			else if (i == u.getSize(DIM_1D)-1 && j == u.getSize(DIM_2D)-1)
+			{
+				target(i, j) = hx * u(i-1,j) + hy * u(i,j-1) - hxy * u(i,j);
+			}
+
+			// bottom right corner
+			else if (i == u.getSize(DIM_1D)-1 && j == 0)
+			{
+				target(i, j) = hx * u(i-1,j) + hy * u(i,j+1) - hxy * u(i,j);
+			}
+
+			// right border
+			else if (i == 0 && j != 0 && j != u.getSize(DIM_2D)-1)
+			{
+				target(i, j) = hx * u(i+1,j) + hy * (u(i,j+1)+u(i,j-1)) - hxy * u(i,j);
+			}
+
+			// left border
+			else if (i == u.getSize(DIM_1D)-1 && j != 0 && j != u.getSize(DIM_2D)-1)
+			{
+				target(i, j) = hx * u(i-1,j) + hy * (u(i,j+1)+u(i,j-1)) - hxy * u(i,j);
+			}
+
+			// top border
+			else if (j == u.getSize(DIM_2D)-1 && i != 0 && i != u.getSize(DIM_1D)-1)
+			{
+				target(i, j) = hx * (u(i-1,j)+u(i+1,j)) + hy * u(i,j-1) - hxy * u(i,j);
+			}
+
+			// bottom border
+			else if (j == 0 && i != 0 && i != u.getSize(DIM_1D)-1)
+			{
+				target(i, j) = hx * (u(i-1,j)+u(i+1,j)) + hy * u(i,j+1) - hxy * u(i,j);
+			}
+		}
+	}
+
+	///////////////////////////////////////////
+	// MERGE target and broadcast afterwards //
+	///////////////////////////////////////////
+
+	// get the double array from our u Array-object
+	double * ar = target.getArray();
+
+	// send it all back to root thread
+	if (rank == ROOT_THREAD)
+	{
+
+
+		// receive from all slaves
+		for (int i = 1; i < size; i++)
+		{
+			MPI_Recv(&ar[num_elements_to_send*i + rest_elements], num_elements_to_send, MPI_DOUBLE, i, SEND_TAG, MPI_COMM_WORLD, &status);
+		}
+	}
+	// only for slaves
+	else
+	{
+		MPI_Send(&ar[num_elements_to_send*rank + rest_elements], num_elements_to_send, MPI_DOUBLE, ROOT_THREAD, SEND_TAG, MPI_COMM_WORLD);
+	}
+
+	// broadcast to have the right array in every thread
+	MPI_Bcast(&ar[0], target.getSize(), MPI_DOUBLE, ROOT_THREAD, MPI_COMM_WORLD);
+
 }
 
 void CGSolver::applyOperator(Array & u, Array & target)
@@ -336,10 +484,10 @@ void CGSolver::applyOperator(Array & u, Array & target)
 
 }
 
-void CGSolver::computeResidual()
+void CGSolver::computeResidual(double dt, double alphaCrank, double k)
 {
 	// compute A*u and store in r_
-	applyOperator(u_, r_);
+	applyOperatorHeat(u_, r_, dt,  alphaCrank,  k);
 
 	// there are nicer solutions to this... cannot be called with __restrict__ yet
 	r_.addScaleTarget(f_, -1.0);
