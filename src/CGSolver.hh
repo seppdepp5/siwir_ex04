@@ -18,7 +18,9 @@ public:
 
 	// yay
 	void solve(double dt, double alphaCrank, double k);
-
+ 	int saveToVtu(std::string filename, Array & u, int firstRow, int lastRow) const;
+	int saveToPvtu(std::string filename, int time_steps, int size) const;
+	int saveToPvd(std::string filename, int time_steps) const;
 	int saveToFile(std::string filename, Array & u) const;
 
 	Array & getU() {return u_;}

@@ -135,7 +135,159 @@ void CGSolver::solve(double dt, double alphaCrank, double k)
 	}
 
 	if (rank == ROOT_THREAD) std::cout << "Solver ran through all " << maxIter_ << " iterations. Residual = " << residual << std::endl;
+}
 
+int CGSolver::saveToPvd(std::string filename, int time_steps) const
+{
+	std::ofstream gnuFile(filename);
+	if (gnuFile.is_open())
+	{
+		gnuFile << "<?xml version=\"1.0\"?>\n";		
+		gnuFile << "<VTKFile type=\"Collection\" version=\"" << 0.1 << "\">\n";		
+		gnuFile << "<Collection>\n";		
+		for(int i = 0; i < time_steps; i++)
+		{
+			gnuFile << "<DataSet timestep=\"" << i << "\" file=\"time_step_" << i << ".pvtu\"" << "/>\n";		
+		}
+		gnuFile << "</Collection>\n";		
+		gnuFile << "</VTKFile>\n";		
+		
+		gnuFile.close();
+		return 0;
+	}
+	else
+	{
+		return 1;
+	}
+}
+
+int CGSolver::saveToPvtu(std::string filename, int time_steps, int size) const
+{
+	std::ofstream gnuFile(filename);
+	if (gnuFile.is_open())
+	{
+		gnuFile << "<?xml version=\"1.0\"?>\n";		
+		gnuFile << "<VTKFile type=\"PUnstructuredGrid\" version=\"" << 0.1 << "\">\n";		
+		gnuFile << "<PUnstructuredGrid>\n";		
+		gnuFile << "<PPoints>\n";
+		gnuFile << "<PDataArray type=\"Float64\" NumberOfComponents=\"" << 3 << "\" format=\"ascii\"/>\n";
+		gnuFile << "</PPoints>\n";		
+		gnuFile << "<PPointData>\n";		
+		gnuFile << "<PDataArray type=\"Float64\" Name=\"Temperature\" NumberOfComponents=\"" << 1 << "\" format=\"ascii\"/>\n";
+		gnuFile << "</PPointData>\n";
+		std::cout << "size: " << size << std::endl;		
+		for(int i = 0; i < size; i++)
+		{
+			gnuFile << "<Piece Source=\"time_step_" << time_steps << "_" << i << ".vtu\"" << "/>\n";		
+		}
+		gnuFile << "</PUnstructuredGrid>\n";		
+		gnuFile << "</VTKFile>\n";		
+		
+		gnuFile.close();
+		return 0;
+	}
+	else
+	{
+		return 1;
+	}
+}
+
+int CGSolver::saveToVtu(std::string filename, Array & u, int firstRow, int lastRow) const
+{
+//std::cout << "data test" << " u: " << u(1,1) << " DIM_1D: " << u.getSize(DIM_1D) << std::endl;
+	std::ofstream gnuFile(filename);
+	if (gnuFile.is_open())
+	{
+		gnuFile << "<?xml version=\"1.0\"?>\n";		
+		gnuFile << "<VTKFile type=\"UnstructuredGrid\" version=\"" << 0.1 << "\">\n";		
+		gnuFile << "<UnstructuredGrid>\n";		
+		gnuFile << "<Piece NumberOfPoints=\"" << (lastRow-firstRow)*u.getSize(DIM_1D) << "\" NumberOfCells=\"" << (lastRow-firstRow)*u.getSize(DIM_1D) << "\">\n";
+		gnuFile << "<Points>\n";		
+		gnuFile << "<DataArray type=\"Float64\" NumberOfComponents=\"" << 3 << "\" format=\"ascii\">\n";
+//KOORD ARRAY
+		for (int j = firstRow; j < lastRow; j++)
+		{
+			for (int i = 0; i < u.getSize(DIM_1D); i++)
+			{
+				if(i == 0 || i == u.getSize(DIM_1D)-1)
+				{
+					if(i == u.getSize(DIM_1D)-1)
+					{
+						gnuFile << "1" << "." << "00" << " ";	
+					}else{
+						gnuFile << "0" << "." << "00" << " ";
+					}
+				}else{
+					double x = ((double)i)/(u.getSize(DIM_1D)-1);
+					x*=100;
+					x = (int)x;
+					x/=100;
+					gnuFile << x << " "; 
+				}
+				if(j == 0 || j == u.getSize(DIM_2D)-1)
+				{
+					if(j == u.getSize(DIM_2D)-1)
+					{
+						gnuFile << "1" << "." << "00" << " ";	
+					}else{
+						gnuFile << "0" << "." << "00" << " ";
+					}
+				}else{
+					double x = ((double)j)/(u.getSize(DIM_2D)-1); 
+					x*=100;
+					x = (int)x;
+					x/=100;
+					gnuFile << x << " "; 
+				}
+				gnuFile << "0.00" << "\n";
+			}
+		}
+		
+		gnuFile << "\n</DataArray>";
+		gnuFile << "\n</Points>";
+		gnuFile << "\n<Cells>";
+		gnuFile << "\n<DataArray type=\"UInt32\" Name=\"connectivity\" format=\"ascii\">";
+		for(int i = 0; i < (lastRow - firstRow)*u.getSize(DIM_1D); i++)
+		{
+			gnuFile << " " << i << " ";
+		}
+		gnuFile << "</DataArray>\n";
+		gnuFile << "<DataArray type=\"UInt32\" Name=\"offsets\" format=\"ascii\">";
+		for(int i = 0; i < (lastRow - firstRow)*u.getSize(DIM_1D); i++)
+		{
+			gnuFile << " " << i+1 << " ";
+		}
+		gnuFile << "</DataArray>\n";
+		gnuFile << "<DataArray type=\"UInt8\" Name=\"types\" format=\"ascii\">";
+		for(int i = 0; i < (lastRow - firstRow)*u.getSize(DIM_1D); i++)
+		{
+			gnuFile << " " << 1 << " ";
+		}
+		gnuFile << "</DataArray>\n";
+		gnuFile << "</Cells>\n";
+		gnuFile << "<PointData>\n";
+		gnuFile << "<DataArray type=\"Float64\" Name=\"Temperature\" NumberOfComponents=\"1\" format=\"ascii\">\n";
+//DATA ARRAY
+		for (int j = firstRow; j < lastRow; j++)
+		{
+			for(int i = 0; i < u.getSize(DIM_1D); i++)
+                	{
+                		gnuFile << u(i,j) << " ";
+                	}
+		}
+
+		gnuFile << "\n</DataArray>";
+		gnuFile << "\n</PointData>";
+		gnuFile << "\n</Piece>";
+		gnuFile << "\n</UnstructuredGrid>";
+		gnuFile << "\n</VTKFile>";
+		
+		return 0;
+	}
+	else
+	{
+		return 1;
+	}
 }
 
 int CGSolver::saveToFile(std::string filename, Array & u) const
@@ -308,7 +460,17 @@ void CGSolver::applyOperatorHeat(Array & u, Array & target, double dt, double al
 			}
 		}
 	}
+/*
+	//if steps -1 calculating residual
+	if(steps >= 0)
+	{
+		std::cout << target(0,0) << " " << target(1,1) << " " << target(1,0) << std::endl;
+		std::string name = "time_step_" + std::to_string(steps) + "_" + std::to_string(rank) + ".vtu";
+		saveToVtu(name, target, first_row, last_row);
+	}
 
+MPI_Barrier(MPI_COMM_WORLD);
+*/
 	///////////////////////////////////////////
 	// MERGE target and broadcast afterwards //
 	///////////////////////////////////////////

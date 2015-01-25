@@ -33,20 +33,59 @@ void HeatSolver::initU()
 void HeatSolver::solve(double alpha, double k, double dt, int timesteps)
 {
 	int rank;
+	int size;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
 	initU();
+	
+        //int num_cols = 1/cgSolver_.getDY();
+        std::cout << "dy: " << cgSolver_.getDY() << std::endl;
+        int num_rows = 1/cgSolver_.getDY() -1;
+        std::cout << "num_rows: " << num_rows << std::endl;
+	int num_rows_to_compute;
 
+        // first row this thread has to compute
+        int first_row;
+        // last row this thread has to compute (exclusive)
+        int last_row;
+
+	int num_rows_to_send = num_rows / size;
+        int rest_rows = num_rows % size;
+
+        //int num_elements_to_send = num_rows_to_send * num_cols;
+        //int rest_elements = rest_rows * num_cols;
+
+        if (rank == 0)
+        {
+                num_rows_to_compute = num_rows_to_send + rest_rows;
+                first_row = 0;
+                last_row = first_row + num_rows_to_compute;
+        }
+        else
+        {
+                num_rows_to_compute = num_rows_to_send;
+                first_row = rank * num_rows_to_compute + rest_rows;
+                last_row = first_row + num_rows_to_compute;
+        }
+std::cout << "rank: " << rank << " first_row: " << first_row << " last_row " << last_row << std::endl;
+
+//std::cout << "dx: " << cgSolver_.getDX() << std::endl;
 	for (int step = 0; step < timesteps; step++)
 	{
 		updateF(alpha, k, dt);
 		cgSolver_.solve(dt, alpha, k);
-
 		if (rank == 0)
 		{
-			std::string name = "solution_" + std::to_string(step);
-			cgSolver_.saveToFile(name, cgSolver_.getU());
+			std::string name = "time_step_" + std::to_string(step) + ".pvtu";
+			cgSolver_.saveToPvtu(name, step, size);
 		}
+		std::string name = "time_step_" + std::to_string(step) + "_" + std::to_string(rank) + ".vtu";
+              	cgSolver_.saveToVtu(name, cgSolver_.getU(), first_row, last_row);
+	}
+	if (rank == 0)
+	{
+		cgSolver_.saveToPvd("solution.pvd", timesteps);
 	}
 
 }

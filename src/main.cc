@@ -96,7 +96,7 @@ int main(int argc, char** args)
 	double alpha = .5;
 	double kk = 0.8;
 	double dt = 0.001;
-	int timesteps = 200;
+	int timesteps = 50;
 
 	CGSolver c(nx, ny, k, maxIter, eps);
 	HeatSolver h(c);
@@ -108,7 +108,6 @@ int main(int argc, char** args)
 		std::cout << "Elapsed time: " << elapsedTime << " seconds" << std::endl;
 
 		std::cout << "Saving solution to solution.gnuplot ..." << std::endl;
-		c.saveToFile("solution.gnuplot", c.getU());
 	}
 
 
