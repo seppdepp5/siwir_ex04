@@ -30,7 +30,7 @@ void HeatSolver::initU()
 	}
 }
 
-void HeatSolver::solve(double alpha, double k, double dt, int timesteps)
+void HeatSolver::solve(double alpha, double k, double dt, int timesteps, int vtk_spacing)
 {
 	int rank;
 	int size;
@@ -40,9 +40,9 @@ void HeatSolver::solve(double alpha, double k, double dt, int timesteps)
 	initU();
 	
         //int num_cols = 1/cgSolver_.getDY();
-        std::cout << "dy: " << cgSolver_.getDY() << std::endl;
+//        std::cout << "dy: " << cgSolver_.getDY() << std::endl;
         int num_rows = 1/cgSolver_.getDY() -1;
-        std::cout << "num_rows: " << num_rows << std::endl;
+//        std::cout << "num_rows: " << num_rows << std::endl;
 	int num_rows_to_compute;
 
         // first row this thread has to compute
@@ -68,20 +68,31 @@ void HeatSolver::solve(double alpha, double k, double dt, int timesteps)
                 first_row = rank * num_rows_to_compute + rest_rows;
                 last_row = first_row + num_rows_to_compute;
         }
-std::cout << "rank: " << rank << " first_row: " << first_row << " last_row " << last_row << std::endl;
+//std::cout << "rank: " << rank << " first_row: " << first_row << " last_row " << last_row << std::endl;
 
 //std::cout << "dx: " << cgSolver_.getDX() << std::endl;
 	for (int step = 0; step < timesteps; step++)
 	{
-		updateF(alpha, k, dt);
-		cgSolver_.solve(dt, alpha, k);
 		if (rank == 0)
 		{
-			std::string name = "time_step_" + std::to_string(step) + ".pvtu";
-			cgSolver_.saveToPvtu(name, step, size);
+			std::cout << "Timestep: " << step << "\t";
 		}
-		std::string name = "time_step_" + std::to_string(step) + "_" + std::to_string(rank) + ".vtu";
-              	cgSolver_.saveToVtu(name, cgSolver_.getU(), first_row, last_row);
+
+		updateF(alpha, k, dt);
+		cgSolver_.solve(dt, alpha, k);
+
+
+
+		if (step % (vtk_spacing+1) == 0)
+		{
+			if (rank == 0)
+			{
+				std::string name = "time_step_" + std::to_string(step) + ".pvtu";
+				cgSolver_.saveToPvtu(name, step, size);
+			}
+			std::string name = "time_step_" + std::to_string(step) + "_" + std::to_string(rank) + ".vtu";
+					cgSolver_.saveToVtu(name, cgSolver_.getU(), first_row, last_row);
+		}
 	}
 	if (rank == 0)
 	{

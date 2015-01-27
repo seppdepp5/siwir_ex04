@@ -22,13 +22,13 @@ int main(int argc, char** args)
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	if (argc != 5 && rank == ROOT_THREAD)
+	if (argc != 10 && rank == ROOT_THREAD)
 	{
-		std::cout << "Usage: ./cg <grid_points_x> <grid_points_y> <iterations> <eps>" << std::endl;
+		std::cout << "Usage: ./cg <grid_points_x> <grid_points_y> <iterations> <eps> <timesteps> <dt> <k> <alpha> <vtk_spacing>" << std::endl;
 		MPI_Finalize();
 		return 1;
 	}
-	else if (argc != 5 && rank != ROOT_THREAD)
+	else if (argc != 10 && rank != ROOT_THREAD)
 	{
 		MPI_Finalize();
 		return 1;
@@ -39,6 +39,21 @@ int main(int argc, char** args)
 	int maxIter;
 	double eps;
 	double k = 2.0 * PI;
+
+#if 1
+	double alpha;
+	double kk;
+	double dt;
+	int timesteps;
+	int vtk_spacing;
+#endif
+
+#if 0
+	double alpha = .5;
+	double kk = 0.8;
+	double dt = 0.001;
+	int timesteps = 50;
+#endif
 
 	siwir::Timer t;
 	double elapsedTime;
@@ -74,9 +89,60 @@ int main(int argc, char** args)
 	iss.str(args[4]);
 	if (!(iss >> eps))
 	{
-		std::cerr << "Could not parse third argument: " << args[3] << std::endl;
+		std::cerr << "Could not parse 4th argument: " << args[4] << std::endl;
 		return 1;
 	}
+
+	iss.str("");
+	iss.clear();
+
+	iss.str(args[5]);
+	if (!(iss >> timesteps))
+	{
+		std::cerr << "Could not parse 5th argument: " << args[5] << std::endl;
+		return 1;
+	}
+
+	iss.str("");
+	iss.clear();
+
+	iss.str(args[6]);
+	if (!(iss >> dt))
+	{
+		std::cerr << "Could not parse 6th argument: " << args[6] << std::endl;
+		return 1;
+	}
+
+	iss.str("");
+	iss.clear();
+
+	iss.str(args[7]);
+	if (!(iss >> kk))
+	{
+		std::cerr << "Could not parse 7th argument: " << args[7] << std::endl;
+		return 1;
+	}
+
+	iss.str("");
+	iss.clear();
+
+	iss.str(args[8]);
+	if (!(iss >> alpha))
+	{
+		std::cerr << "Could not parse 8th argument: " << args[8] << std::endl;
+		return 1;
+	}
+
+	iss.str("");
+	iss.clear();
+
+	iss.str(args[9]);
+	if (!(iss >> vtk_spacing))
+	{
+		std::cerr << "Could not parse 9th argument: " << args[9] << std::endl;
+		return 1;
+	}
+
 
 	if (maxIter < 1)
 	{
@@ -93,21 +159,17 @@ int main(int argc, char** args)
 		}
 	}
 
-	double alpha = .5;
-	double kk = 0.8;
-	double dt = 0.001;
-	int timesteps = 50;
 
 	CGSolver c(nx, ny, k, maxIter, eps);
 	HeatSolver h(c);
 	t.reset();
-	h.solve(alpha, kk, dt, timesteps);
+	h.solve(alpha, kk, dt, timesteps, vtk_spacing);
 	elapsedTime = t.elapsed();
 	if (rank == ROOT_THREAD)
 	{
 		std::cout << "Elapsed time: " << elapsedTime << " seconds" << std::endl;
 
-		std::cout << "Saving solution to solution.gnuplot ..." << std::endl;
+		//std::cout << "Saving solution to solution.gnuplot ..." << std::endl;
 	}
 
 

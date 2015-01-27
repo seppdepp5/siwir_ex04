@@ -115,11 +115,12 @@ void CGSolver::solve(double dt, double alphaCrank, double k)
 		residual = sqrt(delta1/((nx_-1)*(ny_-1)));
 		if (VERBOSE && it%1000 == 0 && rank == ROOT_THREAD)
 		{
-			std::cout << "Step: " << it << "\tResidual: " << residual << std::endl;
+		//	std::cout << "Step: " << it << "\tResidual: " << residual << std::endl;
 		}
 		if (residual <= eps_)
 		{
-			if (rank == ROOT_THREAD) std::cout << "Residual dropped below eps after " << it << " iterations.\nResidual = " << residual << std::endl;
+			// if (rank == ROOT_THREAD) std::cout << "Residual dropped below eps after " << it << " iterations. Residual = " << residual << std::endl;
+			if (rank == ROOT_THREAD) std::cout << "CG iterations: " << it << " Residual: "  << residual << std::endl;
 			return;
 		}
 
@@ -134,7 +135,8 @@ void CGSolver::solve(double dt, double alphaCrank, double k)
 		delta0 = delta1;
 	}
 
-	if (rank == ROOT_THREAD) std::cout << "Solver ran through all " << maxIter_ << " iterations. Residual = " << residual << std::endl;
+	// if (rank == ROOT_THREAD) std::cout << "Solver ran through all " << maxIter_ << " iterations. Residual = " << residual << std::endl;
+	if (rank == ROOT_THREAD) std::cout << "CG iterations: " << maxIter_ << " Residual: "  << residual << std::endl;
 }
 
 int CGSolver::saveToPvd(std::string filename, int time_steps) const
@@ -175,7 +177,7 @@ int CGSolver::saveToPvtu(std::string filename, int time_steps, int size) const
 		gnuFile << "<PPointData>\n";		
 		gnuFile << "<PDataArray type=\"Float64\" Name=\"Temperature\" NumberOfComponents=\"" << 1 << "\" format=\"ascii\"/>\n";
 		gnuFile << "</PPointData>\n";
-		std::cout << "size: " << size << std::endl;		
+		// std::cout << "size: " << size << std::endl;
 		for(int i = 0; i < size; i++)
 		{
 			gnuFile << "<Piece Source=\"time_step_" << time_steps << "_" << i << ".vtu\"" << "/>\n";		
