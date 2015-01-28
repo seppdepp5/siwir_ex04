@@ -86,7 +86,11 @@ void CGSolver::solve(double dt, double alphaCrank, double k)
 	delta0 = r_.scalProdSelf();
 
 	// 3: if ||r||_2 <= eps then stop
-	if (sqrt(delta0/((nx_-1)*(ny_-1))) <= eps_) return;
+	if (sqrt(delta0/((nx_-1)*(ny_-1))) <= eps_) 
+	{
+		if (rank == ROOT_THREAD) std::cout << "CG iterations: 0, Residual: "  << sqrt(delta0/((nx_-1)*(ny_-1))) << std::endl;
+		return;
+	}
 
 	// 4: d = r
 	d.copyFrom(r_);
@@ -354,9 +358,9 @@ void CGSolver::applyOperatorHeat(Array & u, Array & target, double dt, double al
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	double hx = - (alpha * k) / (dx_*dx_);
-	double hy = - (alpha * k) / (dy_*dy_);
-	double hxy = - (1.0/dt - 2.0*hx - 2.0*hy);
+	double hx = - (dt* alpha * k) / (dx_*dx_);
+	double hy = - (dt* alpha * k) / (dy_*dy_);
+	double hxy = - (1.0 - 2.0*hx - 2.0*hy);
 
 
 	int num_cols = u_.getSize(DIM_1D);

@@ -10,7 +10,7 @@
 module load openmpi/1.6.5-ib
 module load gcc/4.8.2
 
-cd /home/stud/by37quny/siwir/siwir_ex04
+cd /home/stud/me31kove/Documents/siwir_git/siwir_ex04
 make clean
 make
 

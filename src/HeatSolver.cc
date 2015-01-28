@@ -108,9 +108,9 @@ void HeatSolver::updateF(double alpha, double k, double dt)
 	double dx_ = cgSolver_.getDX();
 	double dy_ = cgSolver_.getDY();
 
-	double hx =  ((1.0-alpha) * k) / (dx_*dx_);
-	double hy =  ((1.0-alpha) * k) / (dy_*dy_);
-	double hxy = - (1.0/dt - 2.0*hx - 2.0*hy);
+	double hx =  (dt*(1.0-alpha) * k) / (dx_*dx_);
+	double hy =  (dt*(1.0-alpha) * k) / (dy_*dy_);
+	double hxy = - (1.0 - 2.0*hx - 2.0*hy);
 
 
 
